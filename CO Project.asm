@@ -1,5 +1,5 @@
 .data
-msg: .asciiz "mohamed ahmed\n"
+msg: .asciiz "mohamed\n"
 
 .text
 .globl main
