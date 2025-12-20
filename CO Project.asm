@@ -6,7 +6,7 @@ msg4: .asciiz "Generated Ciphertext: "
 msg5: .asciiz "Do you want to decrypt the ciphertext? (Y/N): "
 msg6: .asciiz "Decrypted Plaintext: "
 msg7: .asciiz "Yes\n"
-msg8: .asciiz "No\n"
+msg8: .asciiz "No\copy"
 buffer: .space 100
 
 .text
