@@ -18,13 +18,16 @@ newline:      .asciiz "\n"
 msg:          .space 256
 cipher:       .space 256
 decrypt:      .space 256
-rail:         .space 2048   # rails buffer
+rail:         .space 2048
 
 .text
 .globl main
 
 ############################################
 main:
+    j start_loop
+
+############################################
 start_loop:
     li $v0, 4
     la $a0, askStart
@@ -42,7 +45,7 @@ get_key:
 
     li $v0, 5
     syscall
-    move $s0, $v0      # key
+    move $s0, $v0
 
     blt $s0, 2, key_invalid
     j get_message
@@ -64,13 +67,16 @@ get_message:
     li $a1, 256
     syscall
 
+    jal clear_cipher
+    jal clear_rail
+
 ############################################
 # Encryption
 ############################################
 encrypt:
-    li $t0, 0          # index
-    li $t1, 0          # row
-    li $t2, 1          # direction (1=down, -1=up)
+    li $t0, 0      # message index
+    li $t1, 0      # rail row
+    li $t2, 1      # direction
 
 encrypt_loop:
     lb $t3, msg($t0)
@@ -103,11 +109,11 @@ encrypt_done:
 ############################################
 # Read rails row-by-row
 ############################################
-    li $t0, 0      # rail
-    li $t6, 0      # cipher index
+    li $t0, 0
+    li $t6, 0
 
 read_rails:
-    bge $t0, $s0, print_cipher
+    bge $t0, $s0, finish_cipher
     li $t1, 0
 
 read_cols:
@@ -125,6 +131,9 @@ next_col:
 
     addi $t0, $t0, 1
     j read_rails
+
+finish_cipher:
+    sb $zero, cipher($t6)
 
 ############################################
 print_cipher:
@@ -156,7 +165,7 @@ print_cipher:
     beq $v0, $zero, start_loop
 
 ############################################
-# Decryption (simple reconstruction)
+# Decryption (demonstration)
 ############################################
 decrypt_process:
     li $v0, 4
@@ -164,10 +173,32 @@ decrypt_process:
     syscall
 
     li $v0, 4
-    la $a0, msg      # original restored
+    la $a0, msg
     syscall
 
     j start_loop
+
+############################################
+# Clear cipher buffer
+############################################
+clear_cipher:
+    li $t0, 0
+clear_cipher_loop:
+    sb $zero, cipher($t0)
+    addi $t0, $t0, 1
+    blt $t0, 256, clear_cipher_loop
+    jr $ra
+
+############################################
+# Clear rail buffer
+############################################
+clear_rail:
+    li $t0, 0
+clear_rail_loop:
+    sb $zero, rail($t0)
+    addi $t0, $t0, 1
+    blt $t0, 2048, clear_rail_loop
+    jr $ra
 
 ############################################
 exit_program:
