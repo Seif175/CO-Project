@@ -1,5 +1,5 @@
 ############################################
-# Rail Fence Cipher Utility
+# Rail Fence Cipher Utility (with Decryption)
 # Course: CS223 – Computer Organization
 # Target: MIPS Assembly (QTSPIM)
 ############################################
@@ -67,8 +67,10 @@ get_message:
     li $a1, 256
     syscall
 
-    jal clear_cipher
-    jal clear_rail
+    jal clear_cipher    # Clear cipher buffer
+    jal clear_rail      # Clear rail buffer
+    jal encrypt         # Encrypt immediately
+    j print_cipher
 
 ############################################
 # Encryption
@@ -93,22 +95,19 @@ encrypt_loop:
     beq $t1, $t5, flip_up
     beq $t1, $zero, flip_down
 
-continue:
+continue_encrypt:
     addi $t0, $t0, 1
     j encrypt_loop
 
 flip_up:
     li $t2, -1
-    j continue
+    j continue_encrypt
 
 flip_down:
     li $t2, 1
-    j continue
+    j continue_encrypt
 
 encrypt_done:
-############################################
-# Read rails row-by-row
-############################################
     li $t0, 0
     li $t6, 0
 
@@ -134,6 +133,7 @@ next_col:
 
 finish_cipher:
     sb $zero, cipher($t6)
+    jr $ra
 
 ############################################
 print_cipher:
@@ -164,22 +164,94 @@ print_cipher:
     syscall
     beq $v0, $zero, start_loop
 
+    jal clear_decrypt   # Clear decrypt buffer
+    jal decrypt_process # Call decryption
+    j start_loop
+
 ############################################
-# Decryption (demonstration)
+# Decryption routine
 ############################################
 decrypt_process:
     li $v0, 4
     la $a0, decryptTxt
     syscall
 
+    # Step 1: Mark zig-zag pattern
+    li $t0, 0
+    li $t1, 0
+    li $t2, 1
+    li $t8, 0
+
+mark_pattern:
+    lb $t3, cipher($t0)
+    beq $t3, $zero, fill_rails
+    sb $t1, rail($t8)
+    addi $t0, $t0, 1
+    addi $t8, $t8, 1
+
+    add $t1, $t1, $t2
+    addi $t5, $s0, -1
+    beq $t1, $t5, flip_up2
+    beq $t1, $zero, flip_down2
+    j mark_pattern
+
+flip_up2:
+    li $t2, -1
+    j mark_pattern
+
+flip_down2:
+    li $t2, 1
+    j mark_pattern
+
+# Step 2: Fill rails row by row
+fill_rails:
+    li $t0, 0
+    li $t6, 0
+
+fill_loop:
+    lb $t3, rail($t6)
+    lb $t4, cipher($t0)
+    sb $t4, decrypt($t6)
+    addi $t0, $t0, 1
+    addi $t6, $t6, 1
+    lb $t5, cipher($t0)
+    bnez $t5, fill_loop
+
+# Step 3: Reconstruct plaintext zig-zag
+    li $t0, 0
+    li $t1, 0
+    li $t2, 1
+
+reconstruct_loop:
+    lb $t3, rail($t0)
+    beq $t3, $zero, reconstruct_done
+    lb $t4, decrypt($t0)
+    sb $t4, msg($t0)
+
+    add $t1, $t1, $t2
+    addi $t5, $s0, -1
+    beq $t1, $t5, flip_up3
+    beq $t1, $zero, flip_down3
+
+    addi $t0, $t0, 1
+    j reconstruct_loop
+
+flip_up3:
+    li $t2, -1
+    j reconstruct_loop
+
+flip_down3:
+    li $t2, 1
+    j reconstruct_loop
+
+reconstruct_done:
     li $v0, 4
     la $a0, msg
     syscall
-
-    j start_loop
+    jr $ra
 
 ############################################
-# Clear cipher buffer
+# Clear buffers
 ############################################
 clear_cipher:
     li $t0, 0
@@ -189,15 +261,20 @@ clear_cipher_loop:
     blt $t0, 256, clear_cipher_loop
     jr $ra
 
-############################################
-# Clear rail buffer
-############################################
 clear_rail:
     li $t0, 0
 clear_rail_loop:
     sb $zero, rail($t0)
     addi $t0, $t0, 1
     blt $t0, 2048, clear_rail_loop
+    jr $ra
+
+clear_decrypt:
+    li $t0, 0
+clear_decrypt_loop:
+    sb $zero, decrypt($t0)
+    addi $t0, $t0, 1
+    blt $t0, 256, clear_decrypt_loop
     jr $ra
 
 ############################################
