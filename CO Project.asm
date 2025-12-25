@@ -1,24 +1,26 @@
 ############################################
-# Rail Fence Cipher Utility (with Decryption)
+# Rail Fence Cipher (Encrypt + Decrypt)
 # Course: CS223 – Computer Organization
 # Target: MIPS Assembly (QTSPIM)
 ############################################
 
 .data
-askStart:     .asciiz "Do you want to start? (1=Yes, 0=No): "
-askKey:       .asciiz "Enter key (>=2): "
-keyError:     .asciiz "Invalid key. Try again.\n"
-askMsg:       .asciiz "Enter message: "
-askDecrypt:   .asciiz "Decrypt message? (1=Yes, 0=No): "
-plainTxt:     .asciiz "\nPlaintext: "
-cipherTxt:    .asciiz "\nCiphertext: "
-decryptTxt:   .asciiz "\nDecrypted text: "
-newline:      .asciiz "\n"
+askStart:      .asciiz "Do you want to start? (1=Yes, 0=No): "
+askKey:        .asciiz "Enter key (>=2): "
+keyError:      .asciiz "Invalid key. Try again.\n"
+askMsg:        .asciiz "Enter message: "
+askDecrypt:    .asciiz "Decrypt message? (1=Yes, 0=No): "
+invalidChoice: .asciiz "Invalid choice. Please enter 0 or 1.\n"
 
-msg:          .space 256
-cipher:       .space 256
-decrypt:      .space 256
-rail:         .space 2048
+plainTxt:   .asciiz "\nPlaintext: "
+cipherTxt:  .asciiz "\nCiphertext: "
+decryptTxt: .asciiz "\nDecrypted text: "
+
+msg:        .space 256
+cipher:     .space 256
+decrypt:    .space 256
+rail:       .space 256        # rail index per char
+choiceBuf:  .space 4
 
 .text
 .globl main
@@ -28,15 +30,33 @@ main:
     j start_loop
 
 ############################################
+# Start (0 / 1 validation)
+############################################
 start_loop:
     li $v0, 4
     la $a0, askStart
     syscall
 
-    li $v0, 5
+    li $v0, 8
+    la $a0, choiceBuf
+    li $a1, 4
     syscall
-    beq $v0, $zero, exit_program
 
+    lb $t0, choiceBuf
+    lb $t1, choiceBuf+1
+    bne $t1, 10, invalid_start
+
+    beq $t0, '0', exit_program
+    beq $t0, '1', get_key
+
+invalid_start:
+    li $v0, 4
+    la $a0, invalidChoice
+    syscall
+    j start_loop
+
+############################################
+# Get key
 ############################################
 get_key:
     li $v0, 4
@@ -47,15 +67,17 @@ get_key:
     syscall
     move $s0, $v0
 
-    blt $s0, 2, key_invalid
+    blt $s0, 2, bad_key
     j get_message
 
-key_invalid:
+bad_key:
     li $v0, 4
     la $a0, keyError
     syscall
     j get_key
 
+############################################
+# Get message
 ############################################
 get_message:
     li $v0, 4
@@ -67,76 +89,77 @@ get_message:
     li $a1, 256
     syscall
 
-    jal clear_cipher    # Clear cipher buffer
-    jal clear_rail      # Clear rail buffer
-    jal encrypt         # Encrypt immediately
-    j print_cipher
+    jal encrypt
+    j print_encrypt
 
 ############################################
 # Encryption
 ############################################
 encrypt:
-    li $t0, 0      # message index
-    li $t1, 0      # rail row
+    li $t0, 0      # index
+    li $t1, 0      # rail
     li $t2, 1      # direction
 
-encrypt_loop:
+enc_loop:
     lb $t3, msg($t0)
-    beq $t3, 10, encrypt_done
-    beq $t3, $zero, encrypt_done
+    beq $t3, 10, enc_done
+    beq $t3, $zero, enc_done
 
-    mul $t4, $t1, 256
-    add $t4, $t4, $t0
-    sb $t3, rail($t4)
+    sb $t3, decrypt($t0)
+    sb $t1, rail($t0)
 
     add $t1, $t1, $t2
-
-    addi $t5, $s0, -1
-    beq $t1, $t5, flip_up
+    addi $t4, $s0, -1
+    beq $t1, $t4, flip_up
     beq $t1, $zero, flip_down
 
-continue_encrypt:
+cont_enc:
     addi $t0, $t0, 1
-    j encrypt_loop
+    j enc_loop
 
 flip_up:
     li $t2, -1
-    j continue_encrypt
+    j cont_enc
 
 flip_down:
     li $t2, 1
-    j continue_encrypt
+    j cont_enc
 
-encrypt_done:
+enc_done:
+    move $s1, $t0    # message length
+
     li $t0, 0
-    li $t6, 0
+    li $t5, 0
 
-read_rails:
-    bge $t0, $s0, finish_cipher
+read_rows:
+    bge $t0, $s0, end_enc
     li $t1, 0
 
 read_cols:
-    mul $t4, $t0, 256
-    add $t4, $t4, $t1
-    lb $t3, rail($t4)
-    beq $t3, $zero, next_col
+    bge $t1, $s1, next_row
+    lb $t2, rail($t1)
+    bne $t2, $t0, skip_col
 
-    sb $t3, cipher($t6)
-    addi $t6, $t6, 1
+    lb $t3, decrypt($t1)
+    sb $t3, cipher($t5)
+    addi $t5, $t5, 1
 
-next_col:
+skip_col:
     addi $t1, $t1, 1
-    blt $t1, 256, read_cols
+    j read_cols
 
+next_row:
     addi $t0, $t0, 1
-    j read_rails
+    j read_rows
 
-finish_cipher:
-    sb $zero, cipher($t6)
+end_enc:
+    sb $zero, cipher($t5)
     jr $ra
 
 ############################################
-print_cipher:
+# Print encryption
+############################################
+print_encrypt:
     li $v0, 4
     la $a0, plainTxt
     syscall
@@ -154,128 +177,83 @@ print_cipher:
     syscall
 
 ############################################
-# Ask for decryption
+# Ask decrypt
 ############################################
+ask_decrypt_loop:
     li $v0, 4
     la $a0, askDecrypt
     syscall
 
-    li $v0, 5
+    li $v0, 8
+    la $a0, choiceBuf
+    li $a1, 4
     syscall
-    beq $v0, $zero, start_loop
 
-    jal clear_decrypt   # Clear decrypt buffer
-    jal decrypt_process # Call decryption
-    j start_loop
+    lb $t0, choiceBuf
+    lb $t1, choiceBuf+1
+    bne $t1, 10, bad_decrypt
+
+    beq $t0, '0', start_loop
+    beq $t0, '1', decrypt_process
+
+bad_decrypt:
+    li $v0, 4
+    la $a0, invalidChoice
+    syscall
+    j ask_decrypt_loop
 
 ############################################
-# Decryption routine
+# Decryption (CORRECT)
 ############################################
 decrypt_process:
+    li $t0, 0
+    li $t4, 0
+
+fill_rows_dec:
+    bge $t0, $s0, reconstruct
+    li $t1, 0
+
+fill_cols_dec:
+    bge $t1, $s1, next_row_dec
+    lb $t2, rail($t1)
+    bne $t2, $t0, skip_fill_dec
+
+    lb $t3, cipher($t4)
+    sb $t3, decrypt($t1)
+    addi $t4, $t4, 1
+
+skip_fill_dec:
+    addi $t1, $t1, 1
+    j fill_cols_dec
+
+next_row_dec:
+    addi $t0, $t0, 1
+    j fill_rows_dec
+
+############################################
+# Reconstruct plaintext
+############################################
+reconstruct:
+    li $t0, 0
+recon_loop:
+    bge $t0, $s1, end_dec
+    lb $t1, decrypt($t0)
+    sb $t1, msg($t0)
+    addi $t0, $t0, 1
+    j recon_loop
+
+end_dec:
+    sb $zero, msg($t0)
+
     li $v0, 4
     la $a0, decryptTxt
     syscall
 
-    # Step 1: Mark zig-zag pattern
-    li $t0, 0
-    li $t1, 0
-    li $t2, 1
-    li $t8, 0
-
-mark_pattern:
-    lb $t3, cipher($t0)
-    beq $t3, $zero, fill_rails
-    sb $t1, rail($t8)
-    addi $t0, $t0, 1
-    addi $t8, $t8, 1
-
-    add $t1, $t1, $t2
-    addi $t5, $s0, -1
-    beq $t1, $t5, flip_up2
-    beq $t1, $zero, flip_down2
-    j mark_pattern
-
-flip_up2:
-    li $t2, -1
-    j mark_pattern
-
-flip_down2:
-    li $t2, 1
-    j mark_pattern
-
-# Step 2: Fill rails row by row
-fill_rails:
-    li $t0, 0
-    li $t6, 0
-
-fill_loop:
-    lb $t3, rail($t6)
-    lb $t4, cipher($t0)
-    sb $t4, decrypt($t6)
-    addi $t0, $t0, 1
-    addi $t6, $t6, 1
-    lb $t5, cipher($t0)
-    bnez $t5, fill_loop
-
-# Step 3: Reconstruct plaintext zig-zag
-    li $t0, 0
-    li $t1, 0
-    li $t2, 1
-
-reconstruct_loop:
-    lb $t3, rail($t0)
-    beq $t3, $zero, reconstruct_done
-    lb $t4, decrypt($t0)
-    sb $t4, msg($t0)
-
-    add $t1, $t1, $t2
-    addi $t5, $s0, -1
-    beq $t1, $t5, flip_up3
-    beq $t1, $zero, flip_down3
-
-    addi $t0, $t0, 1
-    j reconstruct_loop
-
-flip_up3:
-    li $t2, -1
-    j reconstruct_loop
-
-flip_down3:
-    li $t2, 1
-    j reconstruct_loop
-
-reconstruct_done:
     li $v0, 4
     la $a0, msg
     syscall
-    jr $ra
 
-############################################
-# Clear buffers
-############################################
-clear_cipher:
-    li $t0, 0
-clear_cipher_loop:
-    sb $zero, cipher($t0)
-    addi $t0, $t0, 1
-    blt $t0, 256, clear_cipher_loop
-    jr $ra
-
-clear_rail:
-    li $t0, 0
-clear_rail_loop:
-    sb $zero, rail($t0)
-    addi $t0, $t0, 1
-    blt $t0, 2048, clear_rail_loop
-    jr $ra
-
-clear_decrypt:
-    li $t0, 0
-clear_decrypt_loop:
-    sb $zero, decrypt($t0)
-    addi $t0, $t0, 1
-    blt $t0, 256, clear_decrypt_loop
-    jr $ra
+    j start_loop
 
 ############################################
 exit_program:
